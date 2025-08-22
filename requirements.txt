@@ -22,3 +22,6 @@ Pillow
 httpx==0.27.0                  # If you need to call external APIs
 python-magic                  # For validating file uploads
 aiofiles                      # For async file operations
+
+google-genai
+greenlet

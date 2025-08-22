@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta
 from typing import Optional
-import jwt
+from jose import jwt, JWTError  # <--- CHANGE HERE
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from dotenv import load_dotenv

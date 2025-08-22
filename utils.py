@@ -1,56 +1,39 @@
-# utils/logging_middleware.py
-
 import json
 import time
 import uuid
+import re  # Added missing import for re
 from datetime import datetime
 from typing import Optional, Tuple
-from fastapi import FastAPI, Request, Response, UploadFile
+from fastapi import FastAPI, Request, Response
 from starlette.types import Message
-from sqlalchemy.orm import Session
-from db.mysql import SessionLocal, insert_row
+from sqlalchemy.ext.asyncio import AsyncSession # 1. Import AsyncSession for type hinting
+from db.mysql import AsyncSessionLocal, insert_row # 2. Import AsyncSessionLocal
 import logging
 
 logger = logging.getLogger(__name__)
 
+# This function seems unrelated to the async issue but needed the 're' import
 def extract_json(raw_response: str) -> dict:
-    # Extract the first JSON block (ignoring <think> and other text)
     match = re.search(r"\{.*\}", raw_response, flags=re.DOTALL)
     if not match:
         raise ValueError("No JSON found in response")
-    
-    # Parse and validate JSON
     try:
         return json.loads(match.group())
     except json.JSONDecodeError:
-        # Fallback: Remove all <think> tags and retry
         clean_text = re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL)
         return json.loads(re.search(r"\{.*\}", clean_text, flags=re.DOTALL).group())
 
 async def extract_file_metadata(request: Request) -> Tuple[Optional[str], Optional[str], Optional[int]]:
-    file_type = filename = None
-    file_size_bytes = None
-
-    print("extract_file_metadata")
-
     try:
         form = await request.form()
         file = form.get("file")
-        
-        
         if hasattr(file, "filename") and hasattr(file, "content_type"):
             content = await file.read()
             await file.seek(0)
-            print("xxxx")
-            print(file.filename)
             return file.content_type, file.filename, len(content)
     except Exception as e:
-        print("YYYYY")
         logger.warning(f"Failed to extract file metadata: {e}")
     return None, None, None
-
-
-
 
 async def extract_request_body(request: Request) -> Optional[str]:
     try:
@@ -62,19 +45,15 @@ async def extract_request_body(request: Request) -> Optional[str]:
         logger.warning(f"Failed to extract JSON body: {e}")
     return None
 
-
 async def capture_response_data(response: Response) -> Tuple[bytes, Optional[str]]:
     body = b""
     async for chunk in response.body_iterator:
         body += chunk
-
     try:
         decoded = body.decode("utf-8")
     except UnicodeDecodeError:
         decoded = None
-
     return body, decoded
-
 
 def rebuild_response(original: Response, body: bytes) -> Response:
     return Response(
@@ -84,9 +63,9 @@ def rebuild_response(original: Response, body: bytes) -> Response:
         media_type=original.media_type
     )
 
-
-def log_api_call(
-    db: Session,
+# 3. Changed to 'async def' and updated db type hint
+async def log_api_call(
+    db: AsyncSession,
     request: Request,
     response: Response,
     duration_ms: int,
@@ -102,7 +81,8 @@ def log_api_call(
     status_code = response.status_code
     response_success = 200 <= status_code < 300
 
-    insert_row("api_call_logs", {
+    # 4. Added 'await' for the async insert_row function
+    await insert_row(db, "api_call_logs", {
         "endpoint": str(request.url.path),
         "method": request.method,
         "request_time": now,
@@ -128,46 +108,36 @@ def add_logging_middleware(app: FastAPI):
     async def logging_middleware(request: Request, call_next):
         start_time = time.time()
 
-        # Optional: Skip logging for docs/static
-        if request.url.path.startswith("/docs") or request.url.path.startswith("/static"):
+        if request.url.path.startswith(("/docs", "/static")):
             return await call_next(request)
 
-
-        # Save the original body
         body = await request.body()
-
-        # Rebuild a request with a fresh body stream for FastAPI to read later
         async def receive() -> Message:
             return {"type": "http.request", "body": body}
-
         request = Request(request.scope, receive)
-        
-        # Get response FIRST
+
         response = await call_next(request)
 
         content_type = request.headers.get("content-type", "")
-
         file_type = filename = request_data = response_data = None
         file_size_bytes = None
 
-        # Extract request info
         if request.method == "POST":
             if "multipart/form-data" in content_type:
                 file_type, filename, file_size_bytes = await extract_file_metadata(request)
             elif "application/json" in content_type:
                 request_data = await extract_request_body(request)
 
-
-        # Capture & rebuild response if JSON
         response_body = None
         if "application/json" in response.headers.get("content-type", ""):
             response_body, response_data = await capture_response_data(response)
             response = rebuild_response(response, response_body)
 
-        # Log the data
         duration_ms = int((time.time() - start_time) * 1000)
-        with SessionLocal() as db:
-            log_api_call(
+
+        # 5. Use 'async with' for the async session
+        async with AsyncSessionLocal() as db:
+            await log_api_call(
                 db=db,
                 request=request,
                 response=response,
@@ -175,7 +145,7 @@ def add_logging_middleware(app: FastAPI):
                 file_type=file_type,
                 filename=filename,
                 file_size_bytes=file_size_bytes,
-                user_id=getattr(request.state, "user", None).id if hasattr(request.state, "user") else None,
+                user_id=getattr(request.state, "user", None),
                 request_data=request_data,
                 response_data=response_data
             )

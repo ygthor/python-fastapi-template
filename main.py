@@ -5,7 +5,7 @@ import os
 from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 from dependencies.dev_auth import verify_dev_token
-from api.routes import auth, dev, local_llm, ocr, ai
+from api.routes import auth, dev, ai
 from utils import add_logging_middleware
 
 def custom_openapi():
