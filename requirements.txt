@@ -1,0 +1,24 @@
+# Core Framework and Server
+fastapi[all]
+uvicorn[standard]==0.30.1
+
+# Database (Async MySQL with SQLAlchemy ORM)
+sqlalchemy
+asyncmy
+
+# Security (Authentication & Passwords)
+python-jose[cryptography]==3.3.0
+passlib
+
+# Configuration
+python-dotenv==1.0.1
+
+# File Handling (for PDF uploads and processing)
+python-multipart
+PyMuPDF
+Pillow
+
+# Optional but Recommended
+httpx==0.27.0                  # If you need to call external APIs
+python-magic                  # For validating file uploads
+aiofiles                      # For async file operations
